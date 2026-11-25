@@ -1,0 +1,80 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Setup MSVC
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Install Raylib (via vcpkg)
+      run: |
+        git clone https://github.com/microsoft/vcpkg.git C:\vcpkg
+        C:\vcpkg\bootstrap-vcpkg.bat
+        C:\vcpkg\vcpkg install raylib:x64-windows-static
+
+    - name: Build NullRelay.exe (static)
+      shell: cmd
+      run: |
+        set INCLUDE=C:\vcpkg\installed\x64-windows-static\include;%INCLUDE%
+        set LIB=C:\vcpkg\installed\x64-windows-static\lib;%LIB%
+        cl /nologo /O2 /MT /I"C:\vcpkg\installed\x64-windows-static\include" ^
+           src\main.c ^
+           /Fe:NullRelay.exe ^
+           /link /SUBSYSTEM:WINDOWS ^
+           raylib.lib glfw3.lib opengl32.lib gdi32.lib winmm.lib user32.lib shell32.lib
+
+    - name: Create portable zip
+      shell: pwsh
+      run: |
+        New-Item -ItemType Directory -Force -Path release
+        Copy-Item NullRelay.exe release/
+        Compress-Archive -Path release\* -DestinationPath NullRelay-Portable.zip -Force
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: NullRelay-Windows
+        path: |
+          NullRelay.exe
+          NullRelay-Portable.zip
+
+    - name: Create GitHub Release (on tag)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          NullRelay.exe
+          NullRelay-Portable.zip
+        body: |
+          ## Null Relay - Portable Windows Build
+
+          **Pre-compiled, zero-dependency .exe**
+
+          ### Downloads
+          - `NullRelay.exe` → just download and run (portable)
+          - `NullRelay-Portable.zip` → same file in a zip
+
+          No installation required. No extra DLLs. No Visual C++ redistributable needed (statically linked).
+
+          ### Controls
+          - WASD / Arrows – Move
+          - Shift – Sprint
+          - F – Toggle flashlight
+          - E / Space – Interact
+          - Tab – Journal
+          - Esc – Pause / Quit
+
+          Enjoy the horror.
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
